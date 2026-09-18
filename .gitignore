@@ -1,0 +1,10 @@
+dist/
+logs/
+state.json
+state.json.bak
+stop.request
+.install.json
+config.default.json
+*.tmp
+*.zip
+*.sha256
