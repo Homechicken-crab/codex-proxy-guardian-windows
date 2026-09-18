@@ -1,3 +1,7 @@
+#解决背景
+
+你是否在为codex思考总是重连5次而烦恼？解决方法他来了！
+
 # Codex Proxy Guardian
 
 面向 Windows 11 Codex 桌面端的轻量代理守护器。它持续读取并验证当前代理，在代理端点稳定变化后，以进程级代理环境和 Chromium 启动参数重新启动 Codex，避免 WebSocket 多次超时后退回 HTTP。
