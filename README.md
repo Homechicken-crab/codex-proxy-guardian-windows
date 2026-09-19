@@ -1,6 +1,4 @@
-
-
-你是否在为codex思考总是重连5次而烦恼？解决方法他来了！
+你是否在为 Codex 思考时总是重连 5 次而烦恼？解决方法来了！
 
 # Codex Proxy Guardian
 
@@ -13,7 +11,8 @@
 - 只接受回环代理，除非显式启用 `allowRemoteProxy`。
 - 仅向新启动的 Codex 进程树注入 `HTTP_PROXY`、`HTTPS_PROXY`、`ALL_PROXY` 及小写形式，并附加 `--proxy-server`。
 - 端点变化防抖、故障恢复宽限、重启限速和熔断，避免代理抖动引发重启循环。
-- 命名互斥锁保证单实例；计划任务在用户登录后静默运行。
+- 命名互斥锁保证单实例；计划任务通过隐藏宿主在用户登录后静默运行，不弹出终端窗口。
+- 守护器可先于 Codex 启动；之后检测到用户打开 Codex 时，会自动接管并注入代理。
 - JSON Lines 日志、状态查询、只读诊断和安全卸载。
 - 不写 WinINET、WinHTTP、PAC、DNS、路由、防火墙、证书或代理软件配置。
 
@@ -33,7 +32,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\Install.ps1 -StartNow
 ```
 
-默认安装到 `%LOCALAPPDATA%\CodexProxyGuardian`，并创建当前用户级计划任务 `CodexProxyGuardian`。任务使用交互用户的有限权限，在登录后延迟启动，不需要管理员权限。
+默认安装到 `%LOCALAPPDATA%\CodexProxyGuardian`，并创建当前用户级计划任务 `CodexProxyGuardian`。若任务计划 API 被系统策略禁用，安装器自动改用当前用户“启动”文件夹快捷方式。两种方式都通过隐藏宿主运行，不需要管理员权限。
 
 更新时从新版本目录再次运行相同命令。已有 `config.json` 会保留，新默认配置写入 `config.default.json` 供比较。
 

@@ -15,7 +15,7 @@ foreach ($name in $files) {
 }
 
 $config = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-$requiredFiles = @('README.md', 'CHANGELOG.md', 'VALIDATION.md', 'config.json')
+$requiredFiles = @('README.md', 'CHANGELOG.md', 'VALIDATION.md', 'config.json', 'TaskRunner.vbs')
 foreach ($name in $requiredFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $name) -PathType Leaf)) {
         $errors += "Required release file is missing: $name"

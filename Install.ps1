@@ -37,7 +37,7 @@ if (-not $PSCmdlet.ShouldProcess($InstallDirectory, 'Install Codex Proxy Guardia
 New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $InstallDirectory 'logs') -Force | Out-Null
 
-$managedFiles = @('Guardian.ps1', 'TaskRunner.ps1', 'Status.ps1', 'Diagnose.ps1', 'Uninstall.ps1', 'README.md', 'CHANGELOG.md', 'VALIDATION.md')
+$managedFiles = @('Guardian.ps1', 'TaskRunner.ps1', 'TaskRunner.vbs', 'Status.ps1', 'Diagnose.ps1', 'Uninstall.ps1', 'README.md', 'CHANGELOG.md', 'VALIDATION.md')
 foreach ($name in $managedFiles) {
     $source = Join-Path $sourceDirectory $name
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Required file is missing: $source" }
@@ -66,60 +66,64 @@ $marker = [pscustomobject][ordered]@{
 $utf8 = New-Object Text.UTF8Encoding($false)
 [IO.File]::WriteAllText($markerPath, ($marker | ConvertTo-Json -Depth 4), $utf8)
 
-$powerShellExe = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+$wscriptExe = "$env:SystemRoot\System32\wscript.exe"
 $taskRunnerPath = Join-Path $InstallDirectory 'TaskRunner.ps1'
-$arguments = "-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$taskRunnerPath`""
+$taskRunnerVbsPath = Join-Path $InstallDirectory 'TaskRunner.vbs'
+$arguments = "//B //Nologo `"$taskRunnerVbsPath`""
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $userName = $identity.Name
 
-$action = New-ScheduledTaskAction -Execute $powerShellExe -Argument $arguments
-$trigger = New-ScheduledTaskTrigger -AtLogOn -User $userName
-try { $trigger.Delay = 'PT20S' } catch { }
-$principal = New-ScheduledTaskPrincipal -UserId $userName -LogonType Interactive -RunLevel Limited
-$settings = New-ScheduledTaskSettingsSet `
-    -AllowStartIfOnBatteries `
-    -DontStopIfGoingOnBatteries `
-    -StartWhenAvailable `
-    -MultipleInstances IgnoreNew `
-    -ExecutionTimeLimit ([TimeSpan]::Zero) `
-    -RestartCount 3 `
-    -RestartInterval (New-TimeSpan -Minutes 1)
-$definition = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'Validates the current proxy and restarts only OpenAI Codex when a stable proxy endpoint changes.'
-try { $definition.Settings.Hidden = $true } catch { }
-
-$existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-if ($existing) {
-    # Ask the old instance to leave its loop first. This prevents an orphaned
-    # child process during upgrades and releases the named mutex cleanly.
-    $stopRequest = Join-Path $InstallDirectory 'stop.request'
-    [IO.File]::WriteAllText($stopRequest, [DateTimeOffset]::Now.ToString('o'), $utf8)
-    $runnerPattern = [Regex]::Escape([IO.Path]::GetFullPath($taskRunnerPath))
-    $deadline = [DateTimeOffset]::Now.AddSeconds(12)
-    do {
-        $oldRunners = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-            $_.Name -in @('powershell.exe', 'pwsh.exe') -and [string]$_.CommandLine -match $runnerPattern
-        })
-        if ($oldRunners.Count -eq 0) { break }
-        Start-Sleep -Milliseconds 500
-    } while ([DateTimeOffset]::Now -lt $deadline)
-    Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-    foreach ($oldRunner in $oldRunners) {
-        Stop-Process -Id $oldRunner.ProcessId -Force -ErrorAction SilentlyContinue
+$startupLinkPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'CodexProxyGuardian.lnk'
+$registrationMode = 'ScheduledTask'
+$taskState = $null
+try {
+    $action = New-ScheduledTaskAction -Execute $wscriptExe -Argument $arguments
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $userName
+    try { $trigger.Delay = 'PT20S' } catch { }
+    $principal = New-ScheduledTaskPrincipal -UserId $userName -LogonType Interactive -RunLevel Limited
+    $settings = New-ScheduledTaskSettingsSet `
+        -AllowStartIfOnBatteries `
+        -DontStopIfGoingOnBatteries `
+        -StartWhenAvailable `
+        -MultipleInstances IgnoreNew `
+        -ExecutionTimeLimit ([TimeSpan]::Zero) `
+        -RestartCount 3 `
+        -RestartInterval (New-TimeSpan -Minutes 1)
+    $definition = New-ScheduledTask -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'Validates the current proxy and restarts only OpenAI Codex when a stable proxy endpoint changes.'
+    try { $definition.Settings.Hidden = $true } catch { }
+    $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($existing) { Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue }
+    Register-ScheduledTask -TaskName $taskName -InputObject $definition -Force | Out-Null
+    Remove-Item -LiteralPath $startupLinkPath -Force -ErrorAction SilentlyContinue
+    if ($StartNow) { Start-ScheduledTask -TaskName $taskName; Start-Sleep -Seconds 2 }
+    $taskState = [string](Get-ScheduledTask -TaskName $taskName).State
+}
+catch {
+    # Some managed environments deny the ScheduledTasks CIM provider. A
+    # current-user Startup shortcut provides the same silent logon behavior;
+    # TaskRunner.vbs supplies retry-on-failure and Guardian supplies the mutex.
+    $registrationMode = 'StartupShortcut'
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($startupLinkPath)
+    $shortcut.TargetPath = $wscriptExe
+    $shortcut.Arguments = $arguments
+    $shortcut.WorkingDirectory = $InstallDirectory
+    $shortcut.WindowStyle = 7
+    $shortcut.Description = 'Codex Proxy Guardian (silent)'
+    $shortcut.Save()
+    if ($StartNow) {
+        Start-Process -FilePath $wscriptExe -ArgumentList @('//B', '//Nologo', "`"$taskRunnerVbsPath`"") -WindowStyle Hidden
+        Start-Sleep -Seconds 2
     }
-}
-Register-ScheduledTask -TaskName $taskName -InputObject $definition -Force | Out-Null
-
-if ($StartNow) {
-    Start-ScheduledTask -TaskName $taskName
-    Start-Sleep -Seconds 2
+    $taskState = 'StartupRegistered'
 }
 
-$task = Get-ScheduledTask -TaskName $taskName
 [pscustomobject][ordered]@{
     installed = $true
     installDirectory = $InstallDirectory
     taskName = $taskName
-    taskState = [string]$task.State
+    registrationMode = $registrationMode
+    taskState = $taskState
     startNow = [bool]$StartNow
     systemProxyChanged = $false
     winHttpChanged = $false

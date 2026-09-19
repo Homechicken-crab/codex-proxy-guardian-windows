@@ -19,7 +19,7 @@ if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
     $ConfigPath = Join-Path $PSScriptRoot 'config.json'
 }
 
-$script:ProductVersion = '1.1.0'
+$script:ProductVersion = '1.2.0'
 $script:StatePath = Join-Path $PSScriptRoot 'state.json'
 $script:StateBackupPath = Join-Path $PSScriptRoot 'state.json.bak'
 $script:StopRequestPath = Join-Path $PSScriptRoot 'stop.request'
@@ -690,6 +690,7 @@ function Invoke-Observation {
     param([object]$State)
     $now = [DateTimeOffset]::Now
     $changed = $false
+    $codexRunning = @(Get-CodexRootProcesses).Count -gt 0
     $endpoint = $null
     $probe = $null
     try {
@@ -769,12 +770,19 @@ function Invoke-Observation {
         $changed = $true
     }
     elseif ($appliedLaunchFingerprint -ne $desiredLaunchFingerprint) {
-        if (@(Get-CodexRootProcesses).Count -gt 0 -or [bool](Get-PropertyValue $script:Config 'ensureCodexRunning' $false)) {
+        if ($codexRunning -or [bool](Get-PropertyValue $script:Config 'ensureCodexRunning' $false)) {
             [void](Invoke-ApplyProxy -State $State -Endpoint $endpoint -Reason 'launch-proxy-profile-changed')
         }
         else {
             $State.lastAction = 'waiting-for-codex-start'
         }
+        $changed = $true
+    }
+    elseif ($codexRunning -and -not [bool]$State.codexWasRunning) {
+        # The guardian commonly starts at logon before Codex. A Codex instance
+        # launched later from the Start menu cannot inherit our process-scoped
+        # proxy, so restart that verified package process exactly once.
+        [void](Invoke-ApplyProxy -State $State -Endpoint $endpoint -Reason 'codex-start-detected')
         $changed = $true
     }
     elseif ($recovered) {
@@ -783,6 +791,7 @@ function Invoke-Observation {
     }
     else {
         $State.lastKnownGoodProxy = $endpoint.key
+        $State.codexWasRunning = $codexRunning
         $State.lastAction = 'healthy'
     }
     $State.outageSince = $null
@@ -858,6 +867,9 @@ try {
     $state.pid = $PID
     $state.startedAt = [DateTimeOffset]::Now.ToString('o')
     $state.productVersion = $script:ProductVersion
+    # Process state never survives a guardian restart or user logon. Reset this
+    # edge detector so an already-running Codex is checked and relaunched once.
+    $state.codexWasRunning = $false
     $state.lastError = $null
     Save-State $state
     Write-GuardianLog INFO 'guardian.start' 'Codex Proxy Guardian started.' @{ pid = $PID; sourceMode = $script:Config.sourceMode; version = $script:ProductVersion }

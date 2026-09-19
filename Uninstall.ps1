@@ -12,6 +12,7 @@ $installDirectory = [IO.Path]::GetFullPath($PSScriptRoot).TrimEnd('\')
 $expectedDirectory = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'CodexProxyGuardian')).TrimEnd('\')
 $markerPath = Join-Path $installDirectory '.install.json'
 $taskName = 'CodexProxyGuardian'
+$startupLinkPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'CodexProxyGuardian.lnk'
 
 if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) {
     throw 'Install marker is missing; refusing recursive removal.'
@@ -39,6 +40,15 @@ if (Test-Path -LiteralPath $guardian) {
 if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
     Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+}
+if (Test-Path -LiteralPath $startupLinkPath -PathType Leaf) {
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($startupLinkPath)
+    $expectedRunner = [IO.Path]::GetFullPath((Join-Path $installDirectory 'TaskRunner.vbs'))
+    if ([string]::Equals([IO.Path]::GetFullPath($shortcut.TargetPath), [IO.Path]::GetFullPath("$env:SystemRoot\System32\wscript.exe"), [StringComparison]::OrdinalIgnoreCase) -and
+        [string]$shortcut.Arguments -like "*$expectedRunner*") {
+        Remove-Item -LiteralPath $startupLinkPath -Force
+    }
 }
 
 # Terminate only a lingering PowerShell whose command line contains this exact

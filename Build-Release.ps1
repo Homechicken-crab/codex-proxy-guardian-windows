@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.1.0',
+    [string]$Version = '1.2.0',
     [switch]$LiveTest
 )
 
@@ -20,6 +20,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Self-test failed; release was not built.' }
 $releaseFiles = @(
     'Guardian.ps1',
     'TaskRunner.ps1',
+    'TaskRunner.vbs',
     'Install.ps1',
     'Status.ps1',
     'Diagnose.ps1',
