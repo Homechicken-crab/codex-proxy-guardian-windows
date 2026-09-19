@@ -19,7 +19,7 @@ if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
     $ConfigPath = Join-Path $PSScriptRoot 'config.json'
 }
 
-$script:ProductVersion = '1.2.2'
+$script:ProductVersion = '1.3.0'
 $script:StatePath = Join-Path $PSScriptRoot 'state.json'
 $script:StateBackupPath = Join-Path $PSScriptRoot 'state.json.bak'
 $script:StopRequestPath = Join-Path $PSScriptRoot 'stop.request'
@@ -79,6 +79,7 @@ function Read-State {
                     appliedLaunchFingerprint = $null
                     lastWebSocketProbeOk = $false
                     lastWebSocketProbeDetail = $null
+                    codexDetectedAt = $null
                 }
                 foreach ($name in $defaults.Keys) {
                     if ($null -eq $state.PSObject.Properties[$name]) {
@@ -115,6 +116,7 @@ function Read-State {
         lastAction = 'created'
         lastError = $null
         codexWasRunning = $false
+        codexDetectedAt = $null
         trafficVerified = $false
         appliedLaunchFingerprint = $null
     }
@@ -596,6 +598,17 @@ function Test-CodexUsesProxy {
     return $false
 }
 
+function Test-CodexLaunchHasProxy {
+    param([object]$Endpoint)
+    $argument = "--proxy-server=$($Endpoint.key)"
+    foreach ($process in @(Get-CodexRootProcesses)) {
+        if ([string]$process.commandLine -and [string]$process.commandLine.IndexOf($argument, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            return $true
+        }
+    }
+    return $false
+}
+
 function Restart-CodexForProxy {
     param([object]$Endpoint)
     $wasRunning = @(Get-CodexRootProcesses).Count -gt 0
@@ -743,11 +756,47 @@ function Invoke-Observation {
         return $true
     }
 
+    # A Codex instance launched through LaunchCodex.ps1 already has the proxy
+    # from its first process. Give it time to make its first connection and
+    # adopt it without interruption. A normal Start-menu launch remains
+    # protected by the existing one-time fallback restart after this window.
+    if ($codexRunning -and -not [bool]$State.codexWasRunning) {
+        if (-not $State.codexDetectedAt) {
+            $State.codexDetectedAt = $now.ToString('o')
+            $State.lastAction = 'verifying-new-codex'
+            Write-GuardianLog INFO 'codex.detected' 'Codex started; waiting briefly for proxy traffic before considering a fallback restart.' @{ endpoint = $endpoint.key }
+            return $true
+        }
+        $launchHasProxy = Test-CodexLaunchHasProxy -Endpoint $endpoint
+        $trafficObserved = Test-CodexUsesProxy -Endpoint $endpoint
+        if ($launchHasProxy -or $trafficObserved) {
+            $State.appliedProxy = $endpoint.key
+            $State.lastKnownGoodProxy = $endpoint.key
+            $State.trafficVerified = $trafficObserved
+            $State.codexWasRunning = $true
+            $State.codexDetectedAt = $null
+            $State | Add-Member -NotePropertyName appliedLaunchFingerprint -NotePropertyValue (Get-CodexLaunchFingerprint -Endpoint $endpoint) -Force
+            $State.lastAction = 'codex-already-proxied'
+            $State.lastError = $null
+            Write-GuardianLog INFO 'codex.proxy-present' 'Codex already has the validated proxy; no restart is needed.' @{ endpoint = $endpoint.key; launchArgument = $launchHasProxy; trafficObserved = $trafficObserved }
+            return $true
+        }
+        $detectedFor = ($now - [DateTimeOffset]::Parse([string]$State.codexDetectedAt)).TotalSeconds
+        if ($detectedFor -lt [int](Get-PropertyValue $script:Config 'codexLaunchGraceSeconds' 20)) {
+            $State.lastAction = 'verifying-new-codex'
+            return $true
+        }
+        $State.codexDetectedAt = $null
+    }
+    elseif (-not $codexRunning) {
+        $State.codexWasRunning = $false
+        $State.codexDetectedAt = $null
+    }
+
     $outageDuration = 0
     if ($State.outageSince) { $outageDuration = ($now - [DateTimeOffset]::Parse([string]$State.outageSince)).TotalSeconds }
     $recovered = $State.outageSince -and
-        $outageDuration -ge [int](Get-PropertyValue $script:Config 'failureGraceSeconds' 60) -and
-        [bool](Get-PropertyValue $script:Config 'restartAfterRecovery' $true)
+        $outageDuration -ge [int](Get-PropertyValue $script:Config 'failureGraceSeconds' 60)
     $desiredLaunchFingerprint = Get-CodexLaunchFingerprint -Endpoint $endpoint
     $appliedLaunchFingerprint = [string](Get-PropertyValue $State 'appliedLaunchFingerprint' '')
 
@@ -779,14 +828,25 @@ function Invoke-Observation {
         $changed = $true
     }
     elseif ($codexRunning -and -not [bool]$State.codexWasRunning) {
-        # The guardian commonly starts at logon before Codex. A Codex instance
-        # launched later from the Start menu cannot inherit our process-scoped
-        # proxy, so restart that verified package process exactly once.
+        # No proxy traffic appeared during the launch grace period. This is
+        # normally a launch through the stock shortcut, so use one controlled
+        # fallback restart with the explicit process proxy.
         [void](Invoke-ApplyProxy -State $State -Endpoint $endpoint -Reason 'codex-start-detected')
         $changed = $true
     }
     elseif ($recovered) {
-        [void](Invoke-ApplyProxy -State $State -Endpoint $endpoint -Reason 'proxy-recovered-after-outage')
+        # The endpoint did not change, so the running process still has the
+        # correct proxy environment and Chromium argument. Recovery needs no
+        # restart unless the operator explicitly retains the legacy behavior.
+        if ([bool](Get-PropertyValue $script:Config 'restartAfterRecovery' $false)) {
+            [void](Invoke-ApplyProxy -State $State -Endpoint $endpoint -Reason 'proxy-recovered-after-outage')
+        }
+        else {
+            $State.lastKnownGoodProxy = $endpoint.key
+            $State.codexWasRunning = $codexRunning
+            $State.lastAction = 'proxy-recovered-no-restart'
+            Write-GuardianLog INFO 'proxy.recovered' 'The same proxy endpoint recovered; Codex was left running.' @{ endpoint = $endpoint.key }
+        }
         $changed = $true
     }
     else {
@@ -870,6 +930,7 @@ try {
     # Process state never survives a guardian restart or user logon. Reset this
     # edge detector so an already-running Codex is checked and relaunched once.
     $state.codexWasRunning = $false
+    $state.codexDetectedAt = $null
     $state.lastError = $null
     Save-State $state
     Write-GuardianLog INFO 'guardian.start' 'Codex Proxy Guardian started.' @{ pid = $PID; sourceMode = $script:Config.sourceMode; version = $script:ProductVersion }

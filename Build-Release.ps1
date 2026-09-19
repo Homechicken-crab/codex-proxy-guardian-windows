@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$Version = '1.2.2',
+    [string]$Version = '1.3.0',
     [switch]$LiveTest
 )
 
@@ -21,6 +21,7 @@ $releaseFiles = @(
     'Guardian.ps1',
     'TaskRunner.ps1',
     'TaskRunner.vbs',
+    'LaunchCodex.ps1',
     'Install.ps1',
     'Status.ps1',
     'Diagnose.ps1',

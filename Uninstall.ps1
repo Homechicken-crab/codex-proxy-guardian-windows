@@ -14,6 +14,7 @@ $markerPath = Join-Path $installDirectory '.install.json'
 $taskName = 'CodexProxyGuardian'
 $startupLinkPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'CodexProxyGuardian.lnk'
 $runKeyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$desktopLinkPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Codex (Proxy).lnk'
 
 if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) {
     throw 'Install marker is missing; refusing recursive removal.'
@@ -56,6 +57,15 @@ if (Test-Path -LiteralPath $runKeyPath) {
     $expectedRunner = [IO.Path]::GetFullPath((Join-Path $installDirectory 'TaskRunner.vbs'))
     if ($runValue -like "*$expectedRunner*") {
         Remove-ItemProperty -LiteralPath $runKeyPath -Name 'CodexProxyGuardian' -ErrorAction SilentlyContinue
+    }
+}
+if (Test-Path -LiteralPath $desktopLinkPath -PathType Leaf) {
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($desktopLinkPath)
+    $expectedLauncher = [IO.Path]::GetFullPath((Join-Path $installDirectory 'LaunchCodex.ps1'))
+    if ([string]::Equals([IO.Path]::GetFullPath($shortcut.TargetPath), [IO.Path]::GetFullPath("$env:SystemRoot\System32\conhost.exe"), [StringComparison]::OrdinalIgnoreCase) -and
+        [string]$shortcut.Arguments -like "*$expectedLauncher*") {
+        Remove-Item -LiteralPath $desktopLinkPath -Force
     }
 }
 

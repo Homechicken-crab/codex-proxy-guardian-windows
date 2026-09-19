@@ -37,7 +37,7 @@ if (-not $PSCmdlet.ShouldProcess($InstallDirectory, 'Install Codex Proxy Guardia
 New-Item -ItemType Directory -Path $InstallDirectory -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $InstallDirectory 'logs') -Force | Out-Null
 
-$managedFiles = @('Guardian.ps1', 'TaskRunner.ps1', 'TaskRunner.vbs', 'Status.ps1', 'Diagnose.ps1', 'Uninstall.ps1', 'README.md', 'CHANGELOG.md', 'VALIDATION.md')
+$managedFiles = @('Guardian.ps1', 'TaskRunner.ps1', 'TaskRunner.vbs', 'LaunchCodex.ps1', 'Status.ps1', 'Diagnose.ps1', 'Uninstall.ps1', 'README.md', 'CHANGELOG.md', 'VALIDATION.md')
 foreach ($name in $managedFiles) {
     $source = Join-Path $sourceDirectory $name
     if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Required file is missing: $source" }
@@ -71,10 +71,29 @@ $conhostExe = "$env:SystemRoot\System32\conhost.exe"
 $powerShellExe = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 $taskRunnerPath = Join-Path $InstallDirectory 'TaskRunner.ps1'
 $taskRunnerVbsPath = Join-Path $InstallDirectory 'TaskRunner.vbs'
+$launcherPath = Join-Path $InstallDirectory 'LaunchCodex.ps1'
 $wscriptArguments = "//B //Nologo `"$taskRunnerVbsPath`""
 $taskArguments = "--headless `"$powerShellExe`" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$taskRunnerPath`""
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $userName = $identity.Name
+
+# Create an explicit launcher so Codex has the process proxy from its first
+# process and normally never needs the guardian's fallback restart.
+$desktopLinkPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'Codex (Proxy).lnk'
+$codexPackage = Get-AppxPackage -Name 'OpenAI.Codex' -ErrorAction SilentlyContinue | Sort-Object Version -Descending | Select-Object -First 1
+$launcherArguments = "--headless `"$powerShellExe`" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$launcherPath`""
+$shell = New-Object -ComObject WScript.Shell
+$launcherShortcut = $shell.CreateShortcut($desktopLinkPath)
+$launcherShortcut.TargetPath = $conhostExe
+$launcherShortcut.Arguments = $launcherArguments
+$launcherShortcut.WorkingDirectory = $InstallDirectory
+$launcherShortcut.WindowStyle = 7
+$launcherShortcut.Description = 'Start Codex with the validated proxy from the first connection'
+if ($codexPackage) {
+    $iconPath = Join-Path $codexPackage.InstallLocation 'app\ChatGPT.exe'
+    if (Test-Path -LiteralPath $iconPath -PathType Leaf) { $launcherShortcut.IconLocation = "$iconPath,0" }
+}
+$launcherShortcut.Save()
 
 $startupLinkPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'CodexProxyGuardian.lnk'
 $runKeyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
@@ -136,4 +155,5 @@ catch {
     systemProxyChanged = $false
     winHttpChanged = $false
     environmentChanged = $false
+    launcherShortcut = $desktopLinkPath
 } | ConvertTo-Json -Depth 4

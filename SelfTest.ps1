@@ -5,7 +5,7 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = 'Stop'
 
 $errors = @()
-$files = @('Guardian.ps1', 'TaskRunner.ps1', 'Install.ps1', 'Status.ps1', 'Diagnose.ps1', 'Uninstall.ps1', 'SelfTest.ps1', 'Build-Release.ps1')
+$files = @('Guardian.ps1', 'TaskRunner.ps1', 'LaunchCodex.ps1', 'Install.ps1', 'Status.ps1', 'Diagnose.ps1', 'Uninstall.ps1', 'SelfTest.ps1', 'Build-Release.ps1')
 foreach ($name in $files) {
     $path = Join-Path $PSScriptRoot $name
     $tokens = $null
@@ -15,7 +15,7 @@ foreach ($name in $files) {
 }
 
 $config = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-$requiredFiles = @('README.md', 'CHANGELOG.md', 'VALIDATION.md', 'config.json', 'TaskRunner.vbs')
+$requiredFiles = @('README.md', 'CHANGELOG.md', 'VALIDATION.md', 'config.json', 'TaskRunner.vbs', 'LaunchCodex.ps1')
 foreach ($name in $requiredFiles) {
     if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot $name) -PathType Leaf)) {
         $errors += "Required release file is missing: $name"
@@ -28,6 +28,7 @@ if ($config.webSocketProbeHost -ne 'chatgpt.com') { $errors += 'WebSocket probe 
 if ([bool]$config.allowRemoteProxy) { $errors += 'Remote proxy endpoints must be disabled by default.' }
 if ([int]$config.debounceSeconds -lt 10) { $errors += 'Debounce window is too short.' }
 if ([int]$config.maxRestartsInWindow -gt 3) { $errors += 'Restart rate limit is too permissive.' }
+if ([int]$config.codexLaunchGraceSeconds -lt 10) { $errors += 'Codex launch verification window is too short.' }
 
 $liveResult = $null
 if ($Live) {

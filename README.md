@@ -13,6 +13,7 @@
 - 端点变化防抖、故障恢复宽限、重启限速和熔断，避免代理抖动引发重启循环。
 - 命名互斥锁保证单实例；计划任务通过 Windows 11 无窗口控制台宿主运行，不弹出 Windows Terminal。
 - 守护器可先于 Codex 启动；之后检测到用户打开 Codex 时，会自动接管并注入代理。
+- 安装器创建桌面快捷方式 `Codex (Proxy)`；通过它启动时代理从第一个进程即生效，通常无需重启。
 - JSON Lines 日志、状态查询、只读诊断和安全卸载。
 - 不写 WinINET、WinHTTP、PAC、DNS、路由、防火墙、证书或代理软件配置。
 
@@ -35,6 +36,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 默认安装到 `%LOCALAPPDATA%\CodexProxyGuardian`，并创建当前用户级计划任务 `CodexProxyGuardian`。若任务计划 API 被系统策略禁用，安装器自动改用当前用户“启动”文件夹快捷方式和 `Run` 登录项，两者由单实例锁去重。所有方式都通过隐藏宿主运行，不需要管理员权限。
 
 更新时从新版本目录再次运行相同命令。已有 `config.json` 会保留，新默认配置写入 `config.default.json` 供比较。
+
+日常请使用桌面的 `Codex (Proxy)` 快捷方式。原 Codex 图标仍然保留；若误从原图标启动且未检测到代理流量，守护器等待 `codexLaunchGraceSeconds` 后才进行一次兜底重启。代理端点本身发生变化时，正在运行的进程无法动态更换启动环境，因此仍需要受控重启。
 
 ## 验证与运维
 
