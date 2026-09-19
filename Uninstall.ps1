@@ -13,6 +13,7 @@ $expectedDirectory = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'CodexP
 $markerPath = Join-Path $installDirectory '.install.json'
 $taskName = 'CodexProxyGuardian'
 $startupLinkPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'CodexProxyGuardian.lnk'
+$runKeyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 
 if (-not (Test-Path -LiteralPath $markerPath -PathType Leaf)) {
     throw 'Install marker is missing; refusing recursive removal.'
@@ -48,6 +49,13 @@ if (Test-Path -LiteralPath $startupLinkPath -PathType Leaf) {
     if ([string]::Equals([IO.Path]::GetFullPath($shortcut.TargetPath), [IO.Path]::GetFullPath("$env:SystemRoot\System32\wscript.exe"), [StringComparison]::OrdinalIgnoreCase) -and
         [string]$shortcut.Arguments -like "*$expectedRunner*") {
         Remove-Item -LiteralPath $startupLinkPath -Force
+    }
+}
+if (Test-Path -LiteralPath $runKeyPath) {
+    $runValue = [string](Get-ItemPropertyValue -LiteralPath $runKeyPath -Name 'CodexProxyGuardian' -ErrorAction SilentlyContinue)
+    $expectedRunner = [IO.Path]::GetFullPath((Join-Path $installDirectory 'TaskRunner.vbs'))
+    if ($runValue -like "*$expectedRunner*") {
+        Remove-ItemProperty -LiteralPath $runKeyPath -Name 'CodexProxyGuardian' -ErrorAction SilentlyContinue
     }
 }
 

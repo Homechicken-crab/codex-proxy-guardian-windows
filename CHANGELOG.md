@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.2 - 2026-09-19
+
+- 计划任务改由 Windows 11 `conhost.exe --headless` 托管 PowerShell，不创建 Windows Terminal 窗口。
+- 守护器进程由任务计划独立持有，重启 Codex 进程树时不会终止自身。
+
+## 1.2.1 - 2026-09-19
+
+- 计划任务 API 不可用时，同时注册当前用户 Startup 快捷方式和 `Run` 登录项。
+- 双启动入口由命名互斥锁去重，避免某个 Windows 启动机制被跳过时守护器未运行。
+
 ## 1.2.0 - 2026-09-19
 
 - 使用由计划任务托管的隐藏 VBScript 启动器，避免 Windows Terminal 开机弹出空白窗口。

@@ -67,17 +67,22 @@ $utf8 = New-Object Text.UTF8Encoding($false)
 [IO.File]::WriteAllText($markerPath, ($marker | ConvertTo-Json -Depth 4), $utf8)
 
 $wscriptExe = "$env:SystemRoot\System32\wscript.exe"
+$conhostExe = "$env:SystemRoot\System32\conhost.exe"
+$powerShellExe = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 $taskRunnerPath = Join-Path $InstallDirectory 'TaskRunner.ps1'
 $taskRunnerVbsPath = Join-Path $InstallDirectory 'TaskRunner.vbs'
-$arguments = "//B //Nologo `"$taskRunnerVbsPath`""
+$wscriptArguments = "//B //Nologo `"$taskRunnerVbsPath`""
+$taskArguments = "--headless `"$powerShellExe`" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$taskRunnerPath`""
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $userName = $identity.Name
 
 $startupLinkPath = Join-Path ([Environment]::GetFolderPath('Startup')) 'CodexProxyGuardian.lnk'
+$runKeyPath = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$runValue = "`"$wscriptExe`" //B //Nologo `"$taskRunnerVbsPath`""
 $registrationMode = 'ScheduledTask'
 $taskState = $null
 try {
-    $action = New-ScheduledTaskAction -Execute $wscriptExe -Argument $arguments
+    $action = New-ScheduledTaskAction -Execute $conhostExe -Argument $taskArguments
     $trigger = New-ScheduledTaskTrigger -AtLogOn -User $userName
     try { $trigger.Delay = 'PT20S' } catch { }
     $principal = New-ScheduledTaskPrincipal -UserId $userName -LogonType Interactive -RunLevel Limited
@@ -95,6 +100,7 @@ try {
     if ($existing) { Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue }
     Register-ScheduledTask -TaskName $taskName -InputObject $definition -Force | Out-Null
     Remove-Item -LiteralPath $startupLinkPath -Force -ErrorAction SilentlyContinue
+    Remove-ItemProperty -LiteralPath $runKeyPath -Name 'CodexProxyGuardian' -ErrorAction SilentlyContinue
     if ($StartNow) { Start-ScheduledTask -TaskName $taskName; Start-Sleep -Seconds 2 }
     $taskState = [string](Get-ScheduledTask -TaskName $taskName).State
 }
@@ -106,16 +112,18 @@ catch {
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($startupLinkPath)
     $shortcut.TargetPath = $wscriptExe
-    $shortcut.Arguments = $arguments
+    $shortcut.Arguments = $wscriptArguments
     $shortcut.WorkingDirectory = $InstallDirectory
     $shortcut.WindowStyle = 7
     $shortcut.Description = 'Codex Proxy Guardian (silent)'
     $shortcut.Save()
+    if (-not (Test-Path -LiteralPath $runKeyPath)) { New-Item -Path $runKeyPath -Force | Out-Null }
+    Set-ItemProperty -LiteralPath $runKeyPath -Name 'CodexProxyGuardian' -Value $runValue -Type String
     if ($StartNow) {
         Start-Process -FilePath $wscriptExe -ArgumentList @('//B', '//Nologo', "`"$taskRunnerVbsPath`"") -WindowStyle Hidden
         Start-Sleep -Seconds 2
     }
-    $taskState = 'StartupRegistered'
+    $taskState = 'StartupShortcutAndRunKeyRegistered'
 }
 
 [pscustomobject][ordered]@{

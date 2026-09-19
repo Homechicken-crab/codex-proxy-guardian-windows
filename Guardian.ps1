@@ -19,7 +19,7 @@ if ([string]::IsNullOrWhiteSpace($ConfigPath)) {
     $ConfigPath = Join-Path $PSScriptRoot 'config.json'
 }
 
-$script:ProductVersion = '1.2.0'
+$script:ProductVersion = '1.2.2'
 $script:StatePath = Join-Path $PSScriptRoot 'state.json'
 $script:StateBackupPath = Join-Path $PSScriptRoot 'state.json.bak'
 $script:StopRequestPath = Join-Path $PSScriptRoot 'stop.request'
