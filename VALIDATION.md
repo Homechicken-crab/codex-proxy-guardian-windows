@@ -1,36 +1,25 @@
-# 验证与安全边界
+# 验证范围
 
-## 验证环境
+## 方案实机依据
 
-版本 1.1.0 已在 Windows 11、Microsoft Store/MSIX 版 Codex 桌面端和本地回环 mixed proxy 上进行实机验证。具体用户名、安装路径、代理程序、端口和订阅信息未纳入仓库。
+在 Windows 11、Windows PowerShell 5.1、Codex CLI 0.162.0-alpha.17.2 上验证过：
 
-## 已验证行为
+- 隔离 `CODEX_HOME` 中的 `.env` 代理变量能被原生 Codex 自动读取。
+- 使用现有登录状态的 `codex doctor --json` 返回 Responses WebSocket `HTTP 101 Switching Protocols`。
+- 桌面端完整退出重开后，真实聊天日志出现 `successfully connected to websocket`；观察窗口内没有新的采样重试或 HTTP 回退。
 
-- HTTP CONNECT 成功后继续完成 TLS 证书校验和 WebSocket Upgrade 请求。
-- 无认证 WebSocket 探测能够收到目标服务的有效 HTTP 响应，证明 WSS 路径可达。
-- Codex 在显式进程级代理下启动后，桌面日志出现 WebSocket 会话活动。
-- 验证窗口内未出现新的 `responses_retry` 或真实 `falling back to HTTP` 事件。
-- 静态脚本解析、默认配置安全约束、安装文件完整性检查通过。
+本仓库只记录上述结果摘要，不包含用户日志、身份、本机路径、实际端口或账号资料。此验证支持配置方法，不代表所有 Codex 版本、VPN 或网络故障均可无缝恢复。
 
-## 不变量
+## 自动化测试
 
-守护器不会：
+`SelfTest.ps1` 在临时目录中检查脚本语法、代理地址约束、WhatIf 无副作用、已有配置保留、大小写重复变量处理、排除项合并、重复安装、端口更新后的原值恢复、用户后续修改保留、无状态卸载、未知状态拒绝和 HTTP 头解析边界。
 
-- 写入 WinINET 或 WinHTTP 代理；
-- 写入用户级或机器级代理环境变量；
-- 修改 PAC、DNS、路由、防火墙或证书；
-- 修改或终止代理软件；
-- 停止 `CodexSandboxService`；
-- 在候选代理探测失败时把无效端点应用给 Codex。
+自动化测试始终使用 `-SkipProbe -SkipLegacyCleanup`，不读取登录凭据、不访问模型、不改动真实配置或启动项。CI 分别使用 Windows PowerShell 5.1 和 PowerShell 7 运行。
 
-## 重启约束
+## 限制
 
-- 端点必须连续稳定并通过完整探测后才能生效。
-- 只定位 `OpenAI.Codex` 当前包路径下的根进程及其子树。
-- 优先请求 GUI 正常关闭，超时后才终止已再次核验的进程树。
-- 默认 10 分钟最多重启 2 次，超过后熔断 15 分钟。
-- 代理中断时保留最后已知有效状态；恢复超过宽限期后最多触发一次受控重启。
-
-## 卸载约束
-
-卸载前必须存在内容匹配的 `.install.json`，并验证目标目录。非默认安装位置还需要显式 `-Force`，以降低递归删除错误目录的风险。
+- 未在所有旧版安装目录和系统策略组合上执行自动迁移实机测试；迁移会核验产品标记和启动参数，不匹配时保留并报错。
+- 未验证运行中重启 VPN 后的每一种消息恢复情形；失败消息可能需要用户重试。
+- 不验证 VPN 开机自启，不自动启动 VPN 或 Codex。
+- `-Live` 不携带账号凭据，其 HTTP 响应不能证明已认证 WebSocket 会话成功。
+- 首次修改 `.env` 后，已运行的 Codex 必须重开一次加载配置。
